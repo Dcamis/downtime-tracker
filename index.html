@@ -128,6 +128,17 @@
   .target-row label{font-size:13px;color:var(--text2);white-space:nowrap}
   .target-row input{width:80px;padding:8px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);font-size:14px;background:var(--bg);color:var(--text);font-family:inherit}
   .target-row select{flex:1;min-width:120px;padding:8px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);font-size:14px;background:var(--bg);color:var(--text);font-family:inherit;appearance:none;-webkit-appearance:none}
+  .dash-section{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);margin-bottom:14px;overflow:hidden}
+  .dash-section-hd{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:0.5px solid var(--border)}
+  .dash-section-hd h3{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:0}
+  .dash-section-hd span{font-size:11px;color:var(--text3)}
+  .dash-table{width:100%;border-collapse:collapse;font-size:12px}
+  .dash-table th{padding:6px 10px;text-align:right;font-weight:600;color:var(--text2);background:var(--bg2);border-bottom:0.5px solid var(--border);white-space:nowrap}
+  .dash-table th:first-child{text-align:left}
+  .dash-table td{padding:6px 10px;text-align:right;color:var(--text);border-bottom:0.5px solid var(--border)}
+  .dash-table td:first-child{text-align:left;font-weight:500}
+  .dash-table tr:last-child td{border-bottom:none}
+  .dash-table tr.dash-total td{font-weight:700;background:var(--bg2)}
 </style>
 </head>
 <body>
@@ -208,6 +219,30 @@
     <div id="rpt-equip-bars"></div>
     <div class="section-title">Top categories</div>
     <div id="rpt-cat-bars"></div>
+
+    <div class="section-title" style="margin-top:24px">Dashboard summary</div>
+
+    <div class="dash-section">
+      <div class="dash-section-hd"><h3>Monthly totals</h3><span id="dash-period-label"></span></div>
+      <div style="overflow-x:auto"><table class="dash-table" id="dash-monthly-table"></table></div>
+    </div>
+    <div class="dash-section">
+      <div class="dash-section-hd"><h3>By downtime type</h3></div>
+      <div style="overflow-x:auto"><table class="dash-table" id="dash-type-table"></table></div>
+    </div>
+    <div class="dash-section">
+      <div class="dash-section-hd"><h3>By commodity</h3></div>
+      <div style="overflow-x:auto"><table class="dash-table" id="dash-commodity-table"></table></div>
+    </div>
+    <div class="dash-section">
+      <div class="dash-section-hd"><h3>By customer</h3></div>
+      <div style="overflow-x:auto"><table class="dash-table" id="dash-customer-table"></table></div>
+    </div>
+    <div class="dash-section">
+      <div class="dash-section-hd"><h3>By equipment</h3><span>Top 10</span></div>
+      <div style="overflow-x:auto"><table class="dash-table" id="dash-equip-table"></table></div>
+    </div>
+
     <div class="rpt-bottom-pad"></div>
   </div>
 </div>
@@ -440,6 +475,74 @@ function renderReport(){
   makeBars('rpt-equip-bars',Object.entries(byEquip).sort((a,b)=>b[1]-a[1]).slice(0,6));
   const byCat={};entries.forEach(e=>{if(e.category)byCat[e.category]=(byCat[e.category]||0)+(+e.hrs||0);});
   makeBars('rpt-cat-bars',Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,8));
+  renderDashboard(entries,m);
+}
+
+function renderDashboard(entries,filterMonth){
+  var allEntries=getEntries();
+  function fmt(v){return(+v||0).toFixed(1)}
+  function na(v){return(+v>0)?fmt(v):'-'}
+  function pctStr(v,t){return t>0?((v/t)*100).toFixed(1)+'%':'—'}
+
+  function buildTable(id,headers,rows,totalRow){
+    var t=document.getElementById(id);
+    if(!t)return;
+    var h='<thead><tr>';
+    headers.forEach(function(hd,i){h+='<th'+(i>0?' style="min-width:52px"':'')+'>'+hd+'</th>';});
+    h+='</tr></thead><tbody>';
+    rows.forEach(function(r){
+      h+='<tr'+(r.tot?' class="dash-total"':'')+'>';
+      r.cells.forEach(function(c,i){h+='<td>'+(i>0?na(c):c)+'</td>';});
+      h+='</tr>';
+    });
+    if(totalRow){
+      h+='<tr class="dash-total">';
+      totalRow.forEach(function(c,i){h+='<td>'+(i>0&&typeof c==='number'?na(c):c)+'</td>';});
+      h+='</tr>';
+    }
+    h+='</tbody>';
+    t.innerHTML=h;
+  }
+
+  var MKEYS=['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06','2025-07','2025-08','2025-09','2025-10','2025-11','2025-12'];
+  var ML=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var mMR={},mOps={};
+  allEntries.forEach(function(e){
+    var mk=e.date?e.date.slice(0,7):'';
+    if(MKEYS.indexOf(mk)<0)return;
+    var h=+e.hrs||0;
+    if(e.dtype==='M&R Downtime'){mMR[mk]=(mMR[mk]||0)+h;}else{mOps[mk]=(mOps[mk]||0)+h;}
+  });
+  document.getElementById('dash-period-label').textContent=filterMonth||'Full year (YTD)';
+  var mrRow={cells:['M&R Downtime']},opRow={cells:['Ops Downtime']},totRow=['Total'];
+  var mrSum=0,opSum=0;
+  MKEYS.forEach(function(k){var mr=mMR[k]||0,op=mOps[k]||0;mrRow.cells.push(mr);opRow.cells.push(op);totRow.push(mr+op);mrSum+=mr;opSum+=op;});
+  mrRow.cells.push(mrSum);opRow.cells.push(opSum);totRow.push(mrSum+opSum);
+  buildTable('dash-monthly-table',['',...ML,'Total'],[mrRow,opRow],totRow);
+
+  var typeMap={};
+  entries.forEach(function(e){var k=e.dtype||'Unknown';typeMap[k]=(typeMap[k]||0)+(+e.hrs||0);});
+  var typeTotal=entries.reduce(function(s,e){return s+(+e.hrs||0);},0);
+  var typeRows=Object.keys(typeMap).sort(function(a,b){return typeMap[b]-typeMap[a];}).map(function(k){return{cells:[k,typeMap[k],pctStr(typeMap[k],typeTotal)]};});
+  buildTable('dash-type-table',['Type','Hours','% of total'],typeRows,['Total',typeTotal,'100%']);
+
+  var cMap={};
+  entries.forEach(function(e){var k=e.commodity||'Unknown';if(!cMap[k])cMap[k]={mr:0,ops:0};var h=+e.hrs||0;if(e.dtype==='M&R Downtime'){cMap[k].mr+=h;}else{cMap[k].ops+=h;}});
+  var cTotal=typeTotal;
+  var mrTotal=entries.filter(function(e){return e.dtype==='M&R Downtime';}).reduce(function(s,e){return s+(+e.hrs||0);},0);
+  var opsTotal=cTotal-mrTotal;
+  var cRows=Object.keys(cMap).sort(function(a,b){return(cMap[b].mr+cMap[b].ops)-(cMap[a].mr+cMap[a].ops);}).map(function(k){var t=cMap[k].mr+cMap[k].ops;return{cells:[k.charAt(0).toUpperCase()+k.slice(1),t,cMap[k].mr,cMap[k].ops,pctStr(t,cTotal)]};});
+  buildTable('dash-commodity-table',['Commodity','Total hrs','M&R hrs','Ops hrs','% share'],cRows,['Total',cTotal,mrTotal,opsTotal,'100%']);
+
+  var cuMap={};
+  entries.forEach(function(e){var k=e.customer||'—';if(!cuMap[k])cuMap[k]={mr:0,ops:0};var h=+e.hrs||0;if(e.dtype==='M&R Downtime'){cuMap[k].mr+=h;}else{cuMap[k].ops+=h;}});
+  var cuRows=Object.keys(cuMap).sort(function(a,b){return(cuMap[b].mr+cuMap[b].ops)-(cuMap[a].mr+cuMap[a].ops);}).map(function(k){var t=cuMap[k].mr+cuMap[k].ops;return{cells:['Customer '+k,t,cuMap[k].mr,cuMap[k].ops,pctStr(t,cTotal)]};});
+  buildTable('dash-customer-table',['Customer','Total hrs','M&R hrs','Ops hrs','% share'],cuRows,['Total',cTotal,mrTotal,opsTotal,'100%']);
+
+  var eMap={};
+  entries.forEach(function(e){if(!e.equip)return;if(!eMap[e.equip])eMap[e.equip]={mr:0,ops:0};var h=+e.hrs||0;if(e.dtype==='M&R Downtime'){eMap[e.equip].mr+=h;}else{eMap[e.equip].ops+=h;}});
+  var eRows=Object.keys(eMap).map(function(k){return{cells:[k,eMap[k].mr+eMap[k].ops,eMap[k].mr,eMap[k].ops]};}).sort(function(a,b){return b.cells[1]-a.cells[1];}).slice(0,10);
+  buildTable('dash-equip-table',['Equipment','Total hrs','M&R hrs','Ops hrs'],eRows,null);
 }
 
 function exportCSV(){
